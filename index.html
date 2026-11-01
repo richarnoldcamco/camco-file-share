@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CAMCO File Share V1</title>
+<title>CAMCO File Share V4</title>
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;background:#fff;color:#000;font:700 14px Arial,Helvetica,sans-serif}
@@ -33,8 +33,13 @@ td.nm{cursor:pointer}td.nm:hover{text-decoration:underline}
 #drop{position:fixed;inset:0;background:rgba(255,230,0,.85);display:none;align-items:center;justify-content:center;font:900 28px Arial;z-index:9;border:6px dashed #000}
 #note{position:fixed;left:50%;top:60px;transform:translateX(-50%);background:#000;color:#fff;border:3px solid #ffe600;border-radius:8px;padding:8px 16px;font:900 14px Arial;display:none;z-index:10}
 #prog{font:800 13px Arial}
+#shareBtn{background:#000;color:#fff;display:none}
+#shareBox{display:none;border:3px solid #000;border-radius:10px;padding:14px 16px;margin:0 0 14px}
+#shareBox h2{margin:0 0 10px;font:900 18px Arial}
+#shareBox input{font:700 15px Arial;padding:8px 10px;border:2px solid #000;border-radius:6px;width:320px;max-width:100%}
+#shareBox .ok{color:#006400;font:900 13px Arial}#shareBox .no{color:#c00000;font:900 13px Arial}
 </style></head><body>
-<div id="top"><h1>CAMCO FILE SHARE V1</h1><span class="who" id="who"></span><button id="outBtn" style="display:none">SIGN OUT</button></div>
+<div id="top"><h1>CAMCO FILE SHARE V4</h1><span class="who" id="who"></span><button id="outBtn" style="display:none">SIGN OUT</button></div>
 
 <div class="card" id="login">
   <h2>SIGN IN</h2>
@@ -46,8 +51,12 @@ td.nm{cursor:pointer}td.nm:hover{text-decoration:underline}
 
 <div id="app">
   <div id="bar"><span id="crumbs"></span><span id="prog"></span>
-    <button class="hot" id="upBtn">UPLOAD FILES</button><button id="folderBtn">NEW FOLDER</button><button id="refBtn">REFRESH</button>
+    <button class="hot" id="upBtn">UPLOAD FILES</button><button id="folderBtn">NEW FOLDER</button><button id="refBtn">REFRESH</button><button id="shareBtn" title="owner only - who can see these files">SHARE LIST</button>
     <input type="file" id="files" multiple style="display:none"></div>
+  <div id="shareBox"><h2>SHARE LIST - who can see these files</h2>
+    <div class="row" style="margin-bottom:10px"><input type="email" id="addEm" placeholder="their email address"><button class="hot" id="addBtn">ADD PERSON</button><button id="shareClose" class="red">CLOSE</button></div>
+    <div id="shareList"></div>
+    <div style="font:700 12px Arial;margin-top:10px">After you add someone, send them the link https://richarnoldcamco.github.io/camco-file-share/ - they press CREATE MY LOGIN, click the link in the Supabase email, then SIGN IN.</div></div>
   <div id="list"></div>
   <div style="font:700 12px Arial;margin-top:10px">Drag files anywhere on this page to upload them into the folder you are in. Only people on the share list can see these files.</div>
 </div>
@@ -58,7 +67,7 @@ td.nm{cursor:pointer}td.nm:hover{text-decoration:underline}
 
 </script>
 <script>
-/* CAMCO FILE SHARE V1 - 01/11/2026. Supabase project "Validation Disposition App", private bucket "shared-files".
+/* CAMCO FILE SHARE V4 - 01/11/2026. Supabase project "Validation Disposition App", private bucket "shared-files".
    Access: only emails on public.file_share_members (owner adds them in Supabase). Publishable key only - the
    bucket rules do the locking. Uploads / deletes are logged in public.file_share_log (who + when). */
 const SB_URL='https://zxvjdeoldfhdjcnycygy.supabase.co';
@@ -84,7 +93,13 @@ $('outBtn').onclick=async()=>{await sb.auth.signOut();location.reload()};
 async function start(){const {data}=await sb.auth.getUser();if(!data||!data.user){return}
   me=data.user.email;$('who').textContent='SIGNED IN: '+me;$('outBtn').style.display='';$('login').style.display='none';$('app').style.display='block';
   try{path=localStorage.getItem('camco_fs_path')||''}catch(e){}
-  await load()}
+  const {data:adm}=await sb.rpc('file_share_is_admin');if(adm===true)$('shareBtn').style.display='';
+  await load();goHash()}
+/* V3 01/11/2026: the RICH AGENT ring menu opens this app at #share (who has access / add person) or #upload */
+function goHash(){if(!me)return;const h=location.hash.replace('#','');
+  if(h==='share'&&$('shareBtn').style.display!=='none'){$('shareBox').style.display='block';shareLoad();$('addEm').focus()}
+  else if(h==='upload'){const b=$('upBtn');b.style.outline='5px solid #c00000';note('DRAG FILES ONTO THIS PAGE, OR PRESS UPLOAD FILES');setTimeout(()=>b.style.outline='',4000)}}
+window.addEventListener('hashchange',goHash);
 async function loadWho(){who={};const {data,error}=await sb.from('file_share_log').select('path,action,email,at').order('at',{ascending:true}).limit(5000);
   if(!error)(data||[]).forEach(r=>{if(r.action==='upload'||r.action==='folder')who[r.path]=r})}
 async function load(){try{localStorage.setItem('camco_fs_path',path)}catch(e){}
@@ -127,5 +142,20 @@ let dc=0;window.addEventListener('dragenter',e=>{if(!me)return;e.preventDefault(
 window.addEventListener('dragleave',()=>{if(--dc<=0){dc=0;$('drop').style.display='none'}});
 window.addEventListener('dragover',e=>e.preventDefault());
 window.addEventListener('drop',e=>{e.preventDefault();dc=0;$('drop').style.display='none';if(me&&e.dataTransfer.files.length)upload(e.dataTransfer.files)});
+/* V2 01/11/2026: SHARE LIST - owner only (Supabase checks file_share_is_admin on every call) */
+async function shareLoad(){$('shareList').innerHTML='Loading…';const {data,error}=await sb.rpc('file_share_list_members');
+  if(error){$('shareList').innerHTML='<span class=no>'+esc(error.message)+'</span>';return}
+  let h='<table><tr><th>EMAIL</th><th>LOGIN</th><th>ADDED</th><th></th></tr>';
+  (data||[]).forEach(r=>{const st=r.confirmed?'<span class=ok>READY</span>':r.has_login?'<span class=no>NOT CONFIRMED - email link not clicked</span>':'<span class=no>NO LOGIN YET - send them the link</span>';
+    h+='<tr><td><b>'+esc(r.email)+'</b>'+(r.is_admin?' (OWNER)':'')+'</td><td>'+st+'</td><td>'+when(r.added_at)+'</td><td style="text-align:right">'+(r.is_admin?'':'<button class=red data-rm="'+esc(r.email)+'">REMOVE</button>')+'</td></tr>'});
+  $('shareList').innerHTML=h+'</table>';
+  $('shareList').querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{if(!confirm('Remove '+b.dataset.rm+'? They will no longer see any files.'))return;
+    const {error}=await sb.rpc('file_share_remove_member',{old_email:b.dataset.rm});note(error?'REMOVE FAILED: '+error.message:'REMOVED');shareLoad()})}
+$('shareBtn').onclick=()=>{const b=$('shareBox');b.style.display=b.style.display==='block'?'none':'block';if(b.style.display==='block'){shareLoad();$('addEm').focus()}};
+$('shareClose').onclick=()=>$('shareBox').style.display='none';
+$('addBtn').onclick=async()=>{const e=$('addEm').value.trim();if(!e){note('TYPE AN EMAIL FIRST');return}
+  const {error}=await sb.rpc('file_share_add_member',{new_email:e});if(error){note('ADD FAILED: '+error.message);return}
+  $('addEm').value='';note('ADDED '+e.toUpperCase());shareLoad()};
+$('addEm').addEventListener('keydown',e=>{if(e.key==='Enter')$('addBtn').click()});
 start();
 </script></body></html>
