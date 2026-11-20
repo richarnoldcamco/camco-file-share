@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CAMCO OVERSEAS PUNCH CLOCK V1</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;color:#000}
+header{background:#7a1f1f;color:#fff;padding:14px 22px;display:flex;align-items:center;gap:16px}
+header h1{margin:0;font-size:22px;font-weight:900;letter-spacing:.5px}
+header .rev{margin-left:auto;font-weight:900;font-size:13px;background:#fff;color:#7a1f1f;padding:3px 9px;border-radius:6px}
+main{max-width:640px;margin:26px auto;padding:0 14px}
+.card{background:#fff;border:3px solid #000;border-radius:12px;padding:22px;margin-bottom:18px}
+label{display:block;font-weight:900;font-size:15px;margin:0 0 6px}
+select,input{width:100%;font:700 22px Arial;padding:10px 12px;border:3px solid #000;border-radius:8px;background:#fffce6;color:#000}
+input#pin{letter-spacing:10px;text-align:center}
+.row{margin-bottom:16px}
+.clock{font:900 46px Arial;text-align:center;margin:4px 0 2px}
+.sub{text-align:center;font-weight:700;font-size:14px}
+button{font:900 20px Arial;border:3px solid #000;border-radius:10px;padding:14px 18px;cursor:pointer}
+.big{width:100%;font-size:30px;padding:22px}
+.in{background:#0a7a1f;color:#fff}.out{background:#c00000;color:#fff}.grey{background:#fff;color:#000}
+.status{font:900 20px Arial;text-align:center;padding:12px;border-radius:8px;margin-bottom:14px;border:3px solid #000}
+.st-in{background:#0a7a1f;color:#fff}.st-out{background:#fff;color:#000}
+.msg{font-weight:900;font-size:17px;margin-top:12px;min-height:22px}
+.bad{color:#c00000}.ok{color:#0a7a1f}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{background:#000;color:#fff;text-align:left;padding:6px 8px}
+td{padding:6px 8px;border-bottom:1px solid #000}
+tr:nth-child(even) td{background:#e6e6e6}
+.flag{display:inline-block;background:#ffe600;color:#000;border:2px solid #000;border-radius:6px;padding:0 6px;font-weight:900;font-size:12px;margin-right:4px}
+.flag.r{background:#c00000;color:#fff}
+.wide{max-width:1200px}
+.hide{display:none}
+.links{text-align:center;font-size:13px;margin-top:6px}
+.links a{color:#000;font-weight:700}
+</style>
+</head>
+<body>
+<header><h1>CAMCO OVERSEAS PUNCH CLOCK</h1><span class="rev">V1</span></header>
+<main id="m">
+  <div class="card">
+    <div class="clock" id="clk">--:--</div>
+    <div class="sub" id="clk2"></div>
+  </div>
+
+  <div class="card" id="login">
+    <div class="row"><label for="who">1. YOUR EMPLOYEE NUMBER (same as Jarvis, e.g. 100358)</label><input id="who" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+    <div class="row"><label for="pin">2. YOUR 6-DIGIT PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    <button class="big grey" id="go" type="button">CONTINUE</button>
+    <div class="msg" id="lmsg" role="status"></div>
+  </div>
+
+  <div class="card hide" id="punch">
+    <div class="status" id="st"></div>
+    <button class="big" id="pb" type="button"></button>
+    <div class="msg" id="pmsg" role="status"></div>
+    <div style="margin-top:16px"><b>YOUR LAST PUNCHES</b><table id="last"></table></div>
+    <div style="margin-top:14px;text-align:center"><button class="grey" id="done" type="button">DONE / SWITCH PERSON</button></div>
+  </div>
+  <div class="links"><a href="#" id="adm">Manager view</a></div>
+</main>
+
+<main id="a" class="wide hide">
+  <div class="card">
+    <div class="row"><label for="acode">MANAGER CODE</label><input id="acode" type="password" autocomplete="off"></div>
+    <div class="row"><label for="adays">DAYS TO SHOW</label><select id="adays"><option>7</option><option selected>14</option><option>30</option><option>60</option><option>120</option></select></div>
+    <button class="grey" id="aload" type="button">SHOW PUNCHES</button> <button class="grey" id="acsv" type="button">EXPORT CSV</button> <button class="grey" id="aback" type="button">BACK</button>
+    <div class="msg" id="amsg" role="status"></div>
+  </div>
+  <div class="card"><table id="atab"></table></div>
+</main>
+
+<script>
+/* CAMCO OVERSEAS PUNCH CLOCK V1 - 11/20/2026 (Rich: "can you make me a jarvis equivalent for the overseas guys to be able to punch in and out from?")
+   Own log in Supabase (not written into Jarvis). Each person: name + 6-digit PIN. Each punch records the internet address and this PC's id;
+   a punch from a PC or address the person never used before is flagged on the manager view. A punch left open 12 hours is closed automatically and flagged. */
+const SB='https://zxvjdeoldfhdjcnycygy.supabase.co', KEY='sb_publishable_Zeuh-azJQSOcIycjhO9E0Q_EkTuXNT7';
+const $=id=>document.getElementById(id);
+async function rpc(fn,args){const r=await fetch(SB+'/rest/v1/rpc/'+fn,{method:'POST',headers:{'apikey':KEY,'Authorization':'Bearer '+KEY,'Content-Type':'application/json'},body:JSON.stringify(args||{})});
+  const t=await r.text();let j=null;try{j=JSON.parse(t)}catch(e){}if(!r.ok)throw new Error((j&&(j.message||j.hint))||t||('error '+r.status));if(j&&j.error)throw new Error(j.error);return j}
+function ls(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v)}catch(e){return null}}
+let DEV=ls('ovs-dev');if(!DEV){DEV='PC-'+Math.random().toString(36).slice(2,10).toUpperCase();ls('ovs-dev',DEV)}
+const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmt(d,tz){if(!d)return '';const x=new Date(d);const p=new Intl.DateTimeFormat('en-US',{timeZone:tz,month:'numeric',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).formatToParts(x);const g=k=>(p.find(q=>q.type===k)||{}).value;
+  return M[g('month')-1]+' '+g('day')+' @ '+g('hour')+':'+g('minute')+' '+String(g('dayPeriod')).toLowerCase()}
+const ET='America/New_York', LOC=Intl.DateTimeFormat().resolvedOptions().timeZone;
+function hrs(a,b){return ((new Date(b||Date.now())-new Date(a))/3600000).toFixed(2)}
+function tick(){const n=new Date();$('clk').textContent=n.toLocaleTimeString([], {hour:'numeric',minute:'2-digit',second:'2-digit'});$('clk2').textContent='Your time '+fmt(n,LOC)+'  ·  Camco (Eastern) '+fmt(n,ET)}
+tick();setInterval(tick,1000);
+let WHO='',PIN='',ST=null;
+{const last=ls('ovs-who');if(last)$('who').value=last}
+$('pin').addEventListener('keydown',e=>{if(e.key==='Enter')$('go').click()});
+$('go').onclick=async()=>{WHO=$('who').value.trim();PIN=$('pin').value.trim();if(!/^\d{5,8}$/.test(WHO)){$('lmsg').innerHTML='<span class=bad>Type your employee number.</span>';return}if(!/^\d{6}$/.test(PIN)){$('lmsg').innerHTML='<span class=bad>The PIN is 6 numbers.</span>';return}
+  $('lmsg').textContent='Checking…';try{ST=await rpc('ovs_status',{p_emp:WHO,p_pin:PIN});ls('ovs-who',WHO);$('lmsg').textContent='';showPunch()}catch(e){$('lmsg').innerHTML='<span class=bad>'+e.message+'</span>'}};
+function showPunch(){$('login').classList.add('hide');$('punch').classList.remove('hide');const open=ST.open;
+  $('st').className='status '+(open?'st-in':'st-out');$('st').innerHTML=ST.name+'<br>'+(open?'PUNCHED IN since '+fmt(open,LOC)+' ('+hrs(open)+' hrs)':'NOT PUNCHED IN');
+  $('pb').className='big '+(open?'out':'in');$('pb').textContent=open?'PUNCH OUT':'PUNCH IN';
+  $('last').innerHTML='<tr><th>IN (your time)</th><th>OUT (your time)</th><th>HRS</th></tr>'+(ST.last||[]).map(r=>'<tr><td>'+fmt(r.punch_in,LOC)+'</td><td>'+(r.punch_out?fmt(r.punch_out,LOC)+(r.auto_closed?' <span class="flag r">AUTO-CLOSED</span>':''):'<b>still in</b>')+'</td><td>'+hrs(r.punch_in,r.punch_out)+'</td></tr>').join('')}
+$('pb').onclick=async()=>{$('pb').disabled=true;$('pmsg').textContent='Saving…';
+  try{const r=await rpc('ovs_do_punch',{p_emp:WHO,p_pin:PIN,p_dev:DEV});ST=await rpc('ovs_status',{p_emp:WHO,p_pin:PIN});showPunch();
+    $('pmsg').innerHTML='<span class=ok>PUNCHED '+r.action+' at '+fmt(r.at,LOC)+' (Camco time '+fmt(r.at,ET)+').</span>'+((!r.known_pc||!r.known_ip)?'<br><span class=bad>New '+(!r.known_pc?'computer':'')+(!r.known_pc&&!r.known_ip?' and ':'')+(!r.known_ip?'internet address':'')+' for you - your manager will see this.</span>':'')}
+  catch(e){$('pmsg').innerHTML='<span class=bad>'+e.message+'</span>'}finally{$('pb').disabled=false}};
+$('done').onclick=()=>{PIN='';$('pin').value='';$('pmsg').textContent='';$('punch').classList.add('hide');$('login').classList.remove('hide')};
+/* manager view */
+let AL=[];
+$('adm').onclick=e=>{e.preventDefault();$('m').classList.add('hide');$('a').classList.remove('hide');const c=ls('ovs-admin');if(c){$('acode').value=c;$('aload').click()}};
+$('aback').onclick=()=>{$('a').classList.add('hide');$('m').classList.remove('hide')};
+$('aload').onclick=async()=>{const c=$('acode').value.trim();$('amsg').textContent='Loading…';
+  try{AL=await rpc('ovs_admin_log',{p_code:c,p_days:+$('adays').value})||[];ls('ovs-admin',c);
+    const per={};AL.forEach(r=>{per[r.name]=(per[r.name]||0)+Number(hrs(r.punch_in,r.punch_out))});
+    $('amsg').innerHTML='<span class=ok>'+AL.length+' punches, '+Object.keys(per).length+' people. Times are Camco (Eastern).</span>';
+    $('atab').innerHTML='<tr><th>NAME</th><th>IN</th><th>OUT</th><th>HRS</th><th>FLAGS</th><th>IP IN / OUT</th></tr>'+AL.map(r=>'<tr><td><b>'+r.name+'</b></td><td>'+fmt(r.punch_in,ET)+'</td><td>'+(r.punch_out?fmt(r.punch_out,ET):'<b>STILL IN</b>')+'</td><td>'+hrs(r.punch_in,r.punch_out)+'</td><td>'+(r.auto_closed?'<span class="flag r">AUTO-CLOSED 12 HRS</span>':'')+(r.new_pc?'<span class=flag>NEW PC</span>':'')+(r.new_ip?'<span class=flag>NEW IP</span>':'')+'</td><td>'+(r.in_ip||'')+' / '+(r.out_ip||'')+'</td></tr>').join('')}
+  catch(e){$('amsg').innerHTML='<span class=bad>'+e.message+'</span>'}};
+$('acsv').onclick=()=>{if(!AL.length){$('amsg').innerHTML='<span class=bad>Load the punches first.</span>';return}
+  const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
+  const csv=['EMP ID,NAME,IN (EASTERN),OUT (EASTERN),HRS,AUTO CLOSED,NEW PC,NEW IP,IP IN,IP OUT,PC IN,PC OUT'].concat(AL.map(r=>[r.emp_id,r.name,fmt(r.punch_in,ET),r.punch_out?fmt(r.punch_out,ET):'STILL IN',hrs(r.punch_in,r.punch_out),r.auto_closed?'YES':'',r.new_pc?'YES':'',r.new_ip?'YES':'',r.in_ip,r.out_ip,r.in_dev,r.out_dev].map(q).join(','))).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='OVERSEAS_PUNCHES_'+new Date().toISOString().slice(0,10)+'.csv';a.click()};
+if(/[?&#]admin/.test(location.href))$('adm').click();
+</script>
+</body>
+</html>
