@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CAMCO OVERSEAS PUNCH CLOCK V1</title>
+<title>CAMCO OVERSEAS PUNCH CLOCK V2</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#f4f4f4;color:#000}
@@ -38,7 +38,7 @@ tr:nth-child(even) td{background:#e6e6e6}
 </style>
 </head>
 <body>
-<header><h1>CAMCO OVERSEAS PUNCH CLOCK</h1><span class="rev">V1</span></header>
+<header><h1>CAMCO OVERSEAS PUNCH CLOCK</h1><span class="rev">V2</span></header>
 <main id="m">
   <div class="card">
     <div class="clock" id="clk">--:--</div>
@@ -66,7 +66,7 @@ tr:nth-child(even) td{background:#e6e6e6}
   <div class="card">
     <div class="row"><label for="acode">MANAGER CODE</label><input id="acode" type="password" autocomplete="off"></div>
     <div class="row"><label for="adays">DAYS TO SHOW</label><select id="adays"><option>7</option><option selected>14</option><option>30</option><option>60</option><option>120</option></select></div>
-    <button class="grey" id="aload" type="button">SHOW PUNCHES</button> <button class="grey" id="acsv" type="button">EXPORT CSV</button> <button class="grey" id="aback" type="button">BACK</button>
+    <button class="grey" id="aload" type="button">SHOW PUNCHES</button> <button class="grey" id="acsv" type="button" style="background:#0a7a1f;color:#fff">DOWNLOAD EXCEL</button> <button class="grey" id="aback" type="button">BACK</button>
     <div class="msg" id="amsg" role="status"></div>
   </div>
   <div class="card"><table id="atab"></table></div>
@@ -113,10 +113,26 @@ $('aload').onclick=async()=>{const c=$('acode').value.trim();$('amsg').textConte
     $('amsg').innerHTML='<span class=ok>'+AL.length+' punches, '+Object.keys(per).length+' people. Times are Camco (Eastern).</span>';
     $('atab').innerHTML='<tr><th>NAME</th><th>IN</th><th>OUT</th><th>HRS</th><th>FLAGS</th><th>IP IN / OUT</th></tr>'+AL.map(r=>'<tr><td><b>'+r.name+'</b></td><td>'+fmt(r.punch_in,ET)+'</td><td>'+(r.punch_out?fmt(r.punch_out,ET):'<b>STILL IN</b>')+'</td><td>'+hrs(r.punch_in,r.punch_out)+'</td><td>'+(r.auto_closed?'<span class="flag r">AUTO-CLOSED 12 HRS</span>':'')+(r.new_pc?'<span class=flag>NEW PC</span>':'')+(r.new_ip?'<span class=flag>NEW IP</span>':'')+'</td><td>'+(r.in_ip||'')+' / '+(r.out_ip||'')+'</td></tr>').join('')}
   catch(e){$('amsg').innerHTML='<span class=bad>'+e.message+'</span>'}};
-$('acsv').onclick=()=>{if(!AL.length){$('amsg').innerHTML='<span class=bad>Load the punches first.</span>';return}
-  const q=s=>'"'+String(s==null?'':s).replace(/"/g,'""')+'"';
-  const csv=['EMP ID,NAME,IN (EASTERN),OUT (EASTERN),HRS,AUTO CLOSED,NEW PC,NEW IP,IP IN,IP OUT,PC IN,PC OUT'].concat(AL.map(r=>[r.emp_id,r.name,fmt(r.punch_in,ET),r.punch_out?fmt(r.punch_out,ET):'STILL IN',hrs(r.punch_in,r.punch_out),r.auto_closed?'YES':'',r.new_pc?'YES':'',r.new_ip?'YES':'',r.in_ip,r.out_ip,r.in_dev,r.out_dev].map(q).join(','))).join('\r\n');
-  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='OVERSEAS_PUNCHES_'+new Date().toISOString().slice(0,10)+'.csv';a.click()};
+/* V2 (Rich 11/20/2026 "i need to be able to download this in excel so i can get it to someone via email"): real .xlsx, grey/white rows, bold black header, frozen header */
+function loadXL(){return window.ExcelJS?Promise.resolve():new Promise((ok,no)=>{const sc=document.createElement('script');sc.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';sc.onload=ok;sc.onerror=()=>no(new Error('Could not load the Excel maker - check the internet'));document.head.appendChild(sc)})}
+$('acsv').onclick=async()=>{if(!AL.length){$('amsg').innerHTML='<span class=bad>Click SHOW PUNCHES first.</span>';return}
+  $('amsg').textContent='Making the Excel file…';
+  try{await loadXL();const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet('PUNCHES',{views:[{state:'frozen',ySplit:1}]});
+    ws.columns=[{header:'EMP ID',width:10},{header:'NAME',width:30},{header:'IN (EASTERN)',width:20},{header:'OUT (EASTERN)',width:20},{header:'HOURS',width:9},{header:'AUTO-CLOSED 12 HRS',width:19},{header:'NEW PC',width:9},{header:'NEW IP',width:9},{header:'IP IN',width:17},{header:'IP OUT',width:17},{header:'PC IN',width:14},{header:'PC OUT',width:14}];
+    AL.forEach(r=>ws.addRow([r.emp_id,r.name,fmt(r.punch_in,ET),r.punch_out?fmt(r.punch_out,ET):'STILL IN',Number(hrs(r.punch_in,r.punch_out)),r.auto_closed?'YES':'',r.new_pc?'YES':'',r.new_ip?'YES':'',r.in_ip||'',r.out_ip||'',r.in_dev||'',r.out_dev||'']));
+    ws.eachRow((row,i)=>{row.eachCell({includeEmpty:true},c=>{c.font={name:'Arial',size:10,bold:i===1,color:{argb:i===1?'FFFFFFFF':'FF000000'}};c.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};
+      c.fill={type:'pattern',pattern:'solid',fgColor:{argb:i===1?'FF000000':(i%2?'FFFFFFFF':'FFD9D9D9')}}})});
+    ws.getColumn(5).numFmt='0.00';
+    const per={};AL.forEach(r=>{const k=r.emp_id+'|'+r.name;per[k]=per[k]||{n:0,h:0,ac:0};per[k].n++;per[k].h+=Number(hrs(r.punch_in,r.punch_out));if(r.auto_closed)per[k].ac++});
+    const ws2=wb.addWorksheet('TOTALS BY PERSON',{views:[{state:'frozen',ySplit:1}]});
+    ws2.columns=[{header:'EMP ID',width:10},{header:'NAME',width:30},{header:'PUNCHES',width:10},{header:'HOURS',width:10},{header:'AUTO-CLOSED',width:13}];
+    Object.keys(per).sort((x,y)=>x.split('|')[1].localeCompare(y.split('|')[1])).forEach(k=>{const [e,n]=k.split('|');ws2.addRow([e,n,per[k].n,Math.round(per[k].h*100)/100,per[k].ac])});
+    ws2.eachRow((row,i)=>{row.eachCell({includeEmpty:true},c=>{c.font={name:'Arial',size:10,bold:i===1,color:{argb:i===1?'FFFFFFFF':'FF000000'}};c.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:i===1?'FF000000':(i%2?'FFFFFFFF':'FFD9D9D9')}}})});
+    ws2.getColumn(4).numFmt='0.00';
+    const buf=await wb.xlsx.writeBuffer();const d=new Date(),ds=(d.getMonth()+1)+'-'+d.getDate()+'-'+String(d.getFullYear()).slice(2);
+    const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));a.download='OVERSEAS_PUNCHES_LAST_'+$('adays').value+'_DAYS_'+ds+'.xlsx';document.body.appendChild(a);a.click();a.remove();
+    $('amsg').innerHTML='<span class=ok>Excel file downloaded - it is in your Downloads folder, ready to attach to an email.</span>'}
+  catch(e){$('amsg').innerHTML='<span class=bad>'+e.message+'</span>'}};
 if(/[?&#]admin/.test(location.href))$('adm').click();
 </script>
 </body>
